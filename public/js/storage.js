@@ -18,6 +18,10 @@ WT.storage = (function () {
     'exerciseBests',
     'prHistory',
     'meta',
+    'theme',
+    'adventure',
+    'weapons',
+    'scheduledWorkouts',
   ];
 
   let state = null;
@@ -42,6 +46,10 @@ WT.storage = (function () {
       exerciseBests: {},
       prHistory: [],
       meta: { createdAt: new Date().toISOString() },
+      theme: { presetId: 'parchment', activeCustomId: null, customPresets: [] },
+      adventure: { currentStage: 1, clearedStages: [] },
+      weapons: { unlockedCount: 0 },
+      scheduledWorkouts: [],
     };
   }
 

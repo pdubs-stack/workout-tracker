@@ -1,4 +1,6 @@
-// Backward-looking month calendar of completed workout days.
+// Month calendar: shows completed workout history AND, now that Mon/Wed/Sat are a fixed
+// schedule instead of a rolling sequence, lets you look forward too -- both the fixed days
+// and any bonus-day workouts you've pre-scheduled via "+ Add Workout".
 window.WT = window.WT || {};
 
 WT.calendar = (function () {
@@ -10,11 +12,6 @@ WT.calendar = (function () {
     viewMonth = now.getMonth();
   }
 
-  function canGoForward() {
-    const now = new Date();
-    return !(viewYear === now.getFullYear() && viewMonth === now.getMonth());
-  }
-
   function goPrev() {
     viewMonth--;
     if (viewMonth < 0) {
@@ -24,7 +21,6 @@ WT.calendar = (function () {
   }
 
   function goNext() {
-    if (!canGoForward()) return;
     viewMonth++;
     if (viewMonth > 11) {
       viewMonth = 0;
@@ -43,6 +39,16 @@ WT.calendar = (function () {
     return map;
   }
 
+  function scheduledByDay() {
+    const map = {};
+    WT.storage.getScheduledWorkouts().forEach((s) => {
+      const [y, m, d] = s.date.split('-').map(Number);
+      const key = y + '-' + (m - 1) + '-' + d;
+      map[key] = s;
+    });
+    return map;
+  }
+
   function monthLabel() {
     const names = [
       'January', 'February', 'March', 'April', 'May', 'June',
@@ -53,6 +59,7 @@ WT.calendar = (function () {
 
   function buildGrid() {
     const byDay = workoutsByDay();
+    const scheduled = scheduledByDay();
     const firstOfMonth = new Date(viewYear, viewMonth, 1);
     const startWeekday = firstOfMonth.getDay(); // 0=Sun
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
@@ -61,7 +68,15 @@ WT.calendar = (function () {
     for (let i = 0; i < startWeekday; i++) cells.push(null);
     for (let day = 1; day <= daysInMonth; day++) {
       const key = viewYear + '-' + viewMonth + '-' + day;
-      cells.push({ day, workouts: byDay[key] || [] });
+      const dateObj = new Date(viewYear, viewMonth, day);
+      cells.push({
+        day,
+        dateStr: WT.workout.dateKey(dateObj),
+        weekday: dateObj.getDay(),
+        fixedType: WT.rotation.fixedTypeFor(dateObj),
+        workouts: byDay[key] || [],
+        scheduled: scheduled[key] || null,
+      });
     }
     return cells;
   }
@@ -69,5 +84,5 @@ WT.calendar = (function () {
   function getViewYear() { return viewYear; }
   function getViewMonth() { return viewMonth; }
 
-  return { init, goPrev, goNext, canGoForward, monthLabel, buildGrid, getViewYear, getViewMonth };
+  return { init, goPrev, goNext, monthLabel, buildGrid, getViewYear, getViewMonth };
 })();

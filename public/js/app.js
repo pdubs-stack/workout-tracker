@@ -1,9 +1,12 @@
 // App bootstrap: load state from the backend, wire up tab navigation + logout, render.
+window.WT = window.WT || {};
+
 (function () {
   const RENDERERS = {
     home: WT.ui.renderHome,
     calendar: WT.ui.renderCalendar,
     quests: WT.ui.renderQuests,
+    adventure: WT.ui.renderAdventure,
     weight: WT.ui.renderWeight,
   };
 
@@ -30,6 +33,7 @@
     await WT.storage.init();
     if (!WT.storage.isReady()) return; // storage.init() already redirected to /login
 
+    WT.theme.applyActive();
     WT.calendar.init();
 
     document.querySelectorAll('.wt-nav-btn').forEach((btn) => {
@@ -37,12 +41,16 @@
     });
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+    const themeBtn = document.getElementById('theme-btn');
+    if (themeBtn) themeBtn.addEventListener('click', () => WT.ui.openThemePicker());
 
     WT.ui.hideLoading();
     showTab('home');
   }
 
-  // This script is injected client-side (see app/page.js) strictly after React's hydration
-  // commit, specifically so DOMContentLoaded has already long since fired -- call directly.
+  WT.app = { goToTab: showTab };
+
+  // This script is injected client-side (see app/(protected)/page.js) strictly after React's
+  // hydration commit, specifically so DOMContentLoaded has already long since fired -- call directly.
   init();
 })();

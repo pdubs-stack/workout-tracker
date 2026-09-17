@@ -2,20 +2,37 @@
 window.WT = window.WT || {};
 
 WT.workout = (function () {
-  function ensureCurrentWorkout() {
-    let current = WT.storage.getCurrentWorkout();
-    if (!current) {
-      current = generateNew();
-    }
-    return current;
+  function dateKey(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
-  function generateNew() {
-    const type = WT.rotation.getNextType();
+  // Returns the current draft if one exists; otherwise auto-generates one for fixed
+  // Mon/Wed/Sat days or a pre-scheduled bonus day. Returns null on an unscheduled bonus
+  // day (Tue/Thu/Fri/Sun with nothing picked yet) so the UI can show the muscle-group picker.
+  function ensureCurrentWorkout() {
+    let current = WT.storage.getCurrentWorkout();
+    if (current) return current;
+
+    const fixedType = WT.rotation.fixedTypeFor();
+    if (fixedType) return generateNew(fixedType, false);
+
+    const today = dateKey(new Date());
+    const scheduled = WT.storage.getScheduledWorkouts();
+    const match = scheduled.find((s) => s.date === today);
+    if (match) {
+      WT.storage.setScheduledWorkouts(scheduled.filter((s) => s !== match));
+      return generateNew(match.type, true);
+    }
+
+    return null;
+  }
+
+  function generateNew(type, bonus) {
     const exercises = WT.exercises.pickFive(type);
     const draft = {
       id: 'w_' + Date.now(),
       type,
+      bonus: !!bonus,
       dateCreated: new Date().toISOString(),
       notes: '',
       exercises,
@@ -24,8 +41,16 @@ WT.workout = (function () {
     return draft;
   }
 
+  // Called from the bonus-day muscle-group picker on Tue/Thu/Fri/Sun.
+  function startBonusWorkout(type) {
+    return generateNew(type, true);
+  }
+
   function regenerate() {
-    return generateNew();
+    const current = WT.storage.getCurrentWorkout();
+    const type = current ? current.type : WT.rotation.fixedTypeFor();
+    const bonus = current ? current.bonus : false;
+    return generateNew(type, bonus);
   }
 
   function rerollExercise(index) {
@@ -68,11 +93,14 @@ WT.workout = (function () {
 
     const result = WT.gamification.applyWorkoutCompletion(current);
 
+    if (current.bonus) {
+      result.weaponUnlocked = WT.weapons.unlockNext();
+    }
+
     const log = WT.storage.getWorkoutLog();
     log.push(current);
     WT.storage.setWorkoutLog(log);
 
-    WT.rotation.advance(current.type);
     WT.storage.setCurrentWorkout(null);
 
     return { workout: current, result };
@@ -85,14 +113,36 @@ WT.workout = (function () {
     return Math.floor((Date.now() - created.getTime()) / 86400000);
   }
 
+  // ---- Scheduling future bonus-day workouts from the calendar ----
+  function scheduleWorkout(dateStr, type) {
+    const list = WT.storage.getScheduledWorkouts();
+    const filtered = list.filter((s) => s.date !== dateStr);
+    filtered.push({ date: dateStr, type });
+    WT.storage.setScheduledWorkouts(filtered);
+  }
+
+  function removeScheduledWorkout(dateStr) {
+    const list = WT.storage.getScheduledWorkouts();
+    WT.storage.setScheduledWorkouts(list.filter((s) => s.date !== dateStr));
+  }
+
+  function getScheduledWorkouts() {
+    return WT.storage.getScheduledWorkouts();
+  }
+
   return {
+    dateKey,
     ensureCurrentWorkout,
     regenerate,
+    startBonusWorkout,
     rerollExercise,
     updateSet,
     setNotes,
     summaryText,
     completeCurrentWorkout,
     daysSinceDraftCreated,
+    scheduleWorkout,
+    removeScheduledWorkout,
+    getScheduledWorkouts,
   };
 })();

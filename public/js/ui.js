@@ -1,4 +1,5 @@
-// All DOM rendering for the four tabs, plus toasts, modals, loading overlay, and save status.
+// All DOM rendering for the tabs, plus toasts, modals, celebration overlay, theme picker,
+// loading overlay, and save status.
 window.WT = window.WT || {};
 
 WT.ui = (function () {
@@ -16,6 +17,8 @@ WT.ui = (function () {
       : new Date(iso);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
+
+  function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
   // ---------------- Loading / Save status ----------------
   function showLoading() {
@@ -42,9 +45,7 @@ WT.ui = (function () {
     badge.className = 'wt-save-status wt-save-status-' + status;
     clearTimeout(savedClearTimer);
     if (status === 'saved') {
-      savedClearTimer = setTimeout(() => {
-        badge.textContent = '';
-      }, 2500);
+      savedClearTimer = setTimeout(() => { badge.textContent = ''; }, 2500);
     }
   }
 
@@ -61,53 +62,135 @@ WT.ui = (function () {
     }, 4200);
   }
 
-  function announceCompletion(result) {
-    toast(`Quest complete! +${result.xpGained} XP`, 'success');
-    if (result.leveledUp) toast(`🎉 Level up! You are now Level ${result.newLevel}.`, 'level');
-    result.prs.forEach((pr) => toast(`💪 New PR: ${pr.exercise}!`, 'pr'));
-    if (result.highVolume) toast(`🔥 Big volume session — Endurance up.`, 'info');
-    (result.armorUps || []).forEach((u) => {
-      toast(`🛡 ${capitalize(u.piece)} advanced to Tier ${u.tier} (${WT.gamification.TIER_NAMES[u.tier]})!`, 'armor');
-    });
+  // ---------------- Modal ----------------
+  function closeModal() {
+    document.getElementById('modal-root').innerHTML = '';
   }
 
-  function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function wireModalChrome() {
+    const overlay = document.getElementById('modal-overlay');
+    const closeBtn = document.getElementById('modal-close');
+    if (overlay) overlay.addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  }
+
+  // ---------------- Quest-complete celebration ----------------
+  function celebrateQuestComplete(result) {
+    const modalRoot = document.getElementById('modal-root');
+    const colors = ['var(--gold)', 'var(--green)', 'var(--blue)', 'var(--red)', 'var(--orange)'];
+    const confetti = Array.from({ length: 44 }, () => {
+      const left = Math.random() * 100;
+      const delay = (Math.random() * 0.5).toFixed(2);
+      const dur = (2 + Math.random() * 1.6).toFixed(2);
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const rot = Math.round(Math.random() * 360);
+      const drift = Math.round(Math.random() * 60 - 30);
+      return `<span class="wt-confetti-piece" style="left:${left}%; animation-delay:${delay}s; animation-duration:${dur}s; background:${color}; --rot:${rot}deg; --drift:${drift}px;"></span>`;
+    }).join('');
+
+    const parts = [`+${result.xpGained} XP`];
+    if (result.leveledUp) parts.push(`🎉 Level up! Now Level ${result.newLevel}`);
+    if (result.prs && result.prs.length) parts.push(`💪 ${result.prs.length} new PR${result.prs.length > 1 ? 's' : ''}`);
+    if (result.armorUps && result.armorUps.length) parts.push(`🛡 ${result.armorUps.length} armor tier-up${result.armorUps.length > 1 ? 's' : ''}`);
+    if (result.weaponUnlocked) parts.push(`⚔ Unlocked: ${result.weaponUnlocked}!`);
+
+    modalRoot.innerHTML = `
+      <div class="wt-celebrate-overlay" id="celebrate-overlay">
+        <div class="wt-confetti-layer">${confetti}</div>
+        <div class="wt-trumpet wt-trumpet-left">🎺</div>
+        <div class="wt-trumpet wt-trumpet-right">🎺</div>
+        <div class="wt-celebrate-card">
+          <h2 class="wt-celebrate-title">⚔ Quest Complete!</h2>
+          <p class="wt-celebrate-summary">${parts.join(' &bull; ')}</p>
+          <div class="wt-celebrate-actions">
+            <button class="wt-btn wt-btn-primary" id="cel-continue">Continue Adventure</button>
+            <button class="wt-btn wt-btn-ghost" id="cel-quests">Check Side Quests</button>
+            <button class="wt-btn wt-btn-ghost" id="cel-quit">Quit</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('cel-continue').addEventListener('click', () => { closeModal(); WT.app.goToTab('adventure'); });
+    document.getElementById('cel-quests').addEventListener('click', () => { closeModal(); WT.app.goToTab('quests'); });
+    document.getElementById('cel-quit').addEventListener('click', () => { closeModal(); WT.app.goToTab('home'); });
+  }
 
   // ---------------- HOME ----------------
-  function renderHome() {
-    const root = document.getElementById('tab-home');
+  function characterCardHtml(tired) {
     const stats = WT.storage.getCharacterStats();
     const level = WT.gamification.levelFromXp(stats.xp);
     const xpInto = WT.gamification.xpIntoLevel(stats.xp);
+    const streak = WT.gamification.attendanceStreak();
+    const weapon = WT.weapons.currentWeapon();
+
+    return `
+      <div class="wt-card wt-character-card">
+        ${WT.character.render(tired ? 'tired' : 'normal')}
+        <div class="wt-level-badge">Level ${level}</div>
+        <div class="wt-xp-bar-track">
+          <div class="wt-xp-bar-fill" style="width:${xpInto}%"></div>
+        </div>
+        <div class="wt-xp-label">${xpInto} / 100 XP</div>
+        <div class="wt-stat-row">
+          <span class="wt-stat wt-stat-str">STR ${stats.strength}</span>
+          <span class="wt-stat wt-stat-end">END ${stats.endurance}</span>
+          <span class="wt-stat wt-stat-disc">DISC ${stats.discipline}</span>
+        </div>
+        ${weapon ? `<div class="wt-weapon-equipped">${WT.weapons.currentIcon()} Wielding: ${weapon}</div>` : ''}
+        <div class="wt-streak">${streak > 0 ? `🔥 ${streak}-week streak` : (tired ? 'Your hero looks a little tired...' : 'No active streak yet — get after it!')}</div>
+      </div>
+    `;
+  }
+
+  function renderHome() {
+    const root = document.getElementById('tab-home');
     const staleDays = WT.workout.daysSinceDraftCreated();
     const tired = staleDays >= 4;
-    const streak = WT.gamification.attendanceStreak();
-
     const current = WT.workout.ensureCurrentWorkout();
+
+    if (!current) {
+      root.innerHTML = `
+        <div class="wt-grid-home">
+          ${characterCardHtml(tired)}
+          <div class="wt-card wt-quest-card">
+            <h2>Bonus Day</h2>
+            <p class="wt-quest-summary">No fixed workout today — pick a muscle group to train. Finishing it unlocks your next weapon!</p>
+            <div class="wt-picker-row">
+              <button class="wt-btn wt-btn-primary wt-picker-btn" data-type="push">💪 Push</button>
+              <button class="wt-btn wt-btn-primary wt-picker-btn" data-type="pull">🏋 Pull</button>
+              <button class="wt-btn wt-btn-primary wt-picker-btn" data-type="legs">🦵 Legs</button>
+            </div>
+          </div>
+        </div>
+      `;
+      root.querySelectorAll('.wt-picker-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          WT.workout.startBonusWorkout(btn.dataset.type);
+          renderHome();
+        });
+      });
+      return;
+    }
+
     const typeLabel = WT.exercises.TYPE_LABELS[current.type];
+    const dayTitle = current.bonus ? `Bonus Quest: ${typeLabel} Day` : `Today's Quest: ${typeLabel} Day`;
 
     root.innerHTML = `
       <div class="wt-grid-home">
-        <div class="wt-card wt-character-card">
-          ${WT.character.render(tired ? 'tired' : 'normal')}
-          <div class="wt-level-badge">Level ${level}</div>
-          <div class="wt-xp-bar-track">
-            <div class="wt-xp-bar-fill" style="width:${xpInto}%"></div>
-          </div>
-          <div class="wt-xp-label">${xpInto} / 100 XP</div>
-          <div class="wt-stat-row">
-            <span class="wt-stat wt-stat-str">STR ${stats.strength}</span>
-            <span class="wt-stat wt-stat-end">END ${stats.endurance}</span>
-            <span class="wt-stat wt-stat-disc">DISC ${stats.discipline}</span>
-          </div>
-          <div class="wt-streak">${streak > 0 ? `🔥 ${streak}-week streak` : (tired ? 'Your hero looks a little tired...' : 'No active streak yet — get after it!')}</div>
-        </div>
-
+        ${characterCardHtml(tired)}
         <div class="wt-card wt-quest-card" id="workout-card">
           <div class="wt-quest-header">
-            <h2>Today's Quest: ${typeLabel} Day</h2>
+            <h2>${dayTitle}</h2>
             <button class="wt-btn wt-btn-ghost" id="btn-regenerate">🎲 Reroll All</button>
           </div>
+          ${current.bonus ? '<p class="wt-bonus-note">⚔ Finishing this unlocks your next weapon.</p>' : ''}
           <p class="wt-quest-summary">${WT.workout.summaryText(current)}</p>
           <div class="wt-exercise-list">
             ${current.exercises.map((ex, i) => renderExerciseRow(ex, i)).join('')}
@@ -141,7 +224,7 @@ WT.ui = (function () {
     });
     root.querySelector('#btn-complete').addEventListener('click', () => {
       const { result } = WT.workout.completeCurrentWorkout();
-      announceCompletion(result);
+      celebrateQuestComplete(result);
       renderHome();
     });
   }
@@ -190,7 +273,8 @@ WT.ui = (function () {
         <div class="wt-calendar-header">
           <button class="wt-btn wt-btn-ghost" id="cal-prev">◀</button>
           <h2>${WT.calendar.monthLabel()}</h2>
-          <button class="wt-btn wt-btn-ghost" id="cal-next" ${WT.calendar.canGoForward() ? '' : 'disabled'}>▶</button>
+          <button class="wt-btn wt-btn-ghost" id="cal-next">▶</button>
+          <button class="wt-btn wt-btn-primary wt-add-workout-btn" id="cal-add-workout">+ Add Workout</button>
         </div>
         <div class="wt-calendar-grid wt-calendar-weekdays">
           ${weekdayNames.map((w) => `<div class="wt-weekday">${w}</div>`).join('')}
@@ -199,10 +283,12 @@ WT.ui = (function () {
           ${cells.map((c) => {
             if (!c) return `<div class="wt-cal-cell wt-cal-empty"></div>`;
             const hasWorkouts = c.workouts.length > 0;
-            const dots = c.workouts.map((w) => `<span class="wt-cal-dot ${typeClass[w.type]}"></span>`).join('');
-            return `<div class="wt-cal-cell ${hasWorkouts ? 'wt-cal-has-workout' : ''}" data-day="${c.day}">
+            const dots = c.workouts.map((w) => `<span class="wt-cal-dot ${typeClass[w.type]} ${w.bonus ? 'wt-cal-dot-bonus' : ''}"></span>`).join('');
+            const scheduledDot = (!hasWorkouts && c.scheduled) ? `<span class="wt-cal-dot wt-cal-dot-scheduled ${typeClass[c.scheduled.type]}"></span>` : '';
+            const isScheduledOnly = !!c.scheduled && !hasWorkouts;
+            return `<div class="wt-cal-cell ${hasWorkouts ? 'wt-cal-has-workout' : ''} ${isScheduledOnly ? 'wt-cal-scheduled' : ''}" data-day="${c.day}">
               <span class="wt-cal-daynum">${c.day}</span>
-              <div class="wt-cal-dots">${dots}</div>
+              <div class="wt-cal-dots">${dots}${scheduledDot}</div>
             </div>`;
           }).join('')}
         </div>
@@ -210,17 +296,31 @@ WT.ui = (function () {
           <span><span class="wt-cal-dot wt-day-push"></span> Push</span>
           <span><span class="wt-cal-dot wt-day-pull"></span> Pull</span>
           <span><span class="wt-cal-dot wt-day-legs"></span> Legs</span>
+          <span><span class="wt-cal-dot wt-cal-dot-scheduled wt-day-push"></span> Scheduled</span>
         </div>
       </div>
     `;
 
     root.querySelector('#cal-prev').addEventListener('click', () => { WT.calendar.goPrev(); drawCalendar(root); });
     root.querySelector('#cal-next').addEventListener('click', () => { WT.calendar.goNext(); drawCalendar(root); });
+    root.querySelector('#cal-add-workout').addEventListener('click', openAddWorkoutModal);
     root.querySelectorAll('.wt-cal-has-workout').forEach((cellEl) => {
       cellEl.addEventListener('click', () => {
         const day = Number(cellEl.dataset.day);
         const cell = cells.find((c) => c && c.day === day);
         openDayModal(cell.workouts);
+      });
+    });
+    root.querySelectorAll('.wt-cal-scheduled').forEach((cellEl) => {
+      cellEl.addEventListener('click', () => {
+        const day = Number(cellEl.dataset.day);
+        const cell = cells.find((c) => c && c.day === day);
+        if (!cell || !cell.scheduled) return;
+        const label = WT.exercises.TYPE_LABELS[cell.scheduled.type];
+        if (window.confirm(`Cancel this scheduled ${label} workout for ${fmtDate(cell.dateStr)}?`)) {
+          WT.workout.removeScheduledWorkout(cell.dateStr);
+          drawCalendar(root);
+        }
       });
     });
   }
@@ -229,7 +329,7 @@ WT.ui = (function () {
     const modalRoot = document.getElementById('modal-root');
     const body = workouts.map((w) => `
       <div class="wt-modal-workout">
-        <h3>${capitalize(w.type)} Day — ${fmtDate(w.date)}</h3>
+        <h3>${capitalize(w.type)} Day${w.bonus ? ' (Bonus)' : ''} — ${fmtDate(w.date)}</h3>
         <ul class="wt-modal-exlist">
           ${w.exercises.map((ex) => `
             <li>
@@ -251,20 +351,58 @@ WT.ui = (function () {
         </div>
       </div>
     `;
-    document.getElementById('modal-overlay').addEventListener('click', (e) => {
-      if (e.target.id === 'modal-overlay') closeModal();
+    wireModalChrome();
+  }
+
+  function openAddWorkoutModal() {
+    const modalRoot = document.getElementById('modal-root');
+    const todayStr = WT.workout.dateKey(new Date());
+    modalRoot.innerHTML = `
+      <div class="wt-modal-overlay" id="modal-overlay">
+        <div class="wt-modal">
+          <button class="wt-modal-close" id="modal-close">✕</button>
+          <h3>📅 Add a Bonus Workout</h3>
+          <p class="wt-modal-hint">Pick a future Tuesday, Thursday, Friday, or Sunday to pre-schedule a workout. It counts as a bonus day and unlocks your next weapon when completed.</p>
+          <form id="add-workout-form" class="wt-weight-form">
+            <label>Date <input type="date" id="aw-date" min="${todayStr}" required></label>
+            <label>Muscle Group
+              <select id="aw-type">
+                <option value="push">Push</option>
+                <option value="pull">Pull</option>
+                <option value="legs">Legs</option>
+              </select>
+            </label>
+            <p class="wt-login-error" id="aw-error" style="display:none;"></p>
+            <button type="submit" class="wt-btn wt-btn-primary">Schedule It</button>
+          </form>
+        </div>
+      </div>
+    `;
+    wireModalChrome();
+    document.getElementById('add-workout-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const dateVal = document.getElementById('aw-date').value;
+      const type = document.getElementById('aw-type').value;
+      const errorEl = document.getElementById('aw-error');
+      if (!dateVal) return;
+      const [y, m, d] = dateVal.split('-').map(Number);
+      const dObj = new Date(y, m - 1, d);
+      const fixed = WT.rotation.fixedTypeFor(dObj);
+      if (fixed) {
+        errorEl.textContent = `That day already has a fixed ${WT.exercises.TYPE_LABELS[fixed]} workout.`;
+        errorEl.style.display = 'block';
+        return;
+      }
+      if (dateVal < todayStr) {
+        errorEl.textContent = 'Pick a date today or in the future.';
+        errorEl.style.display = 'block';
+        return;
+      }
+      WT.workout.scheduleWorkout(dateVal, type);
+      closeModal();
+      renderCalendar();
+      toast(`Scheduled a ${WT.exercises.TYPE_LABELS[type]} bonus workout for ${fmtDate(dateVal)}`, 'success');
     });
-    document.getElementById('modal-close').addEventListener('click', closeModal);
-  }
-
-  function closeModal() {
-    document.getElementById('modal-root').innerHTML = '';
-  }
-
-  function escapeHtml(s) {
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
   }
 
   // ---------------- QUESTS & ARMOR ----------------
@@ -272,6 +410,7 @@ WT.ui = (function () {
     const root = document.getElementById('tab-quests');
     const sideQuests = WT.gamification.sideQuestStatus();
     const armor = WT.gamification.allArmorStatus();
+    const weapons = WT.weapons.allStatus();
 
     root.innerHTML = `
       <div class="wt-section">
@@ -311,6 +450,19 @@ WT.ui = (function () {
           `).join('')}
         </div>
       </div>
+
+      <div class="wt-section">
+        <h2 class="wt-section-title">⚔ Armory</h2>
+        <p class="wt-weapon-hint">Complete a bonus workout (Tue/Thu/Fri/Sun) to unlock the next weapon.</p>
+        <div class="wt-weapon-row">
+          ${weapons.map((w) => `
+            <div class="wt-weapon-chip ${w.unlocked ? 'wt-weapon-unlocked' : ''}">
+              <span class="wt-weapon-icon">${w.unlocked ? w.icon : '🔒'}</span>
+              <span>${w.name}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
     `;
   }
 
@@ -320,6 +472,178 @@ WT.ui = (function () {
     if (bonus.endurance) parts.push(`+${bonus.endurance} Endurance`);
     if (bonus.discipline) parts.push(`+${bonus.discipline} Discipline`);
     return parts.join(', ');
+  }
+
+  // ---------------- ADVENTURE ----------------
+  function renderAdventure() {
+    const root = document.getElementById('tab-adventure');
+    const stages = WT.adventure.listStages(10);
+    const power = WT.adventure.playerPower();
+
+    root.innerHTML = `
+      <div class="wt-section">
+        <h2 class="wt-section-title">⚔ Adventure</h2>
+        <p class="wt-adventure-power">Your power: <strong>${power}</strong> <span class="wt-adventure-power-hint">(Strength + Endurance + Discipline)</span></p>
+        <div class="wt-stage-list">
+          ${stages.map((s) => `
+            <div class="wt-card wt-stage-card ${s.cleared ? 'wt-stage-cleared' : ''} ${!s.unlocked ? 'wt-stage-locked' : ''}">
+              <div class="wt-stage-num">Stage ${s.stage}</div>
+              <div class="wt-stage-enemy">${s.enemyName}</div>
+              <div class="wt-stage-power">Needs ~${s.required} power</div>
+              ${s.cleared
+                ? '<div class="wt-stage-status wt-stage-status-cleared">✅ Cleared</div>'
+                : s.unlocked
+                  ? `<button class="wt-btn wt-btn-primary wt-stage-fight-btn" data-stage="${s.stage}">⚔ Fight</button>`
+                  : '<div class="wt-stage-status">🔒 Locked</div>'
+              }
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    root.querySelectorAll('.wt-stage-fight-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const stage = Number(btn.dataset.stage);
+        const result = WT.adventure.attemptStage(stage);
+        showBattleResult(result);
+      });
+    });
+  }
+
+  function showBattleResult(result) {
+    const modalRoot = document.getElementById('modal-root');
+    modalRoot.innerHTML = `
+      <div class="wt-modal-overlay" id="modal-overlay">
+        <div class="wt-modal wt-battle-modal">
+          <button class="wt-modal-close" id="modal-close">✕</button>
+          <h3>${result.won ? '🏆 Victory!' : '💀 Defeated'}</h3>
+          <div class="wt-battle-log">
+            ${result.log.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
+          </div>
+          ${result.won ? '<p class="wt-battle-reward">+25 XP earned!</p>' : '<p class="wt-battle-hint">Train more and try again.</p>'}
+        </div>
+      </div>
+    `;
+    document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') { closeModal(); renderAdventure(); } });
+    document.getElementById('modal-close').addEventListener('click', () => { closeModal(); renderAdventure(); });
+  }
+
+  // ---------------- THEME PICKER ----------------
+  function openThemePicker() {
+    const modalRoot = document.getElementById('modal-root');
+    const t = WT.storage.getTheme();
+    const customPresets = t.customPresets || [];
+
+    modalRoot.innerHTML = `
+      <div class="wt-modal-overlay" id="modal-overlay">
+        <div class="wt-modal wt-theme-modal">
+          <button class="wt-modal-close" id="modal-close">✕</button>
+          <h3>🎨 Choose a Theme</h3>
+          <div class="wt-theme-grid">
+            ${WT.theme.PRESET_ORDER.map((id) => {
+              const p = WT.theme.PRESETS[id];
+              const active = t.presetId === id;
+              return `<button class="wt-theme-swatch-btn ${active ? 'wt-theme-active' : ''}" data-preset="${id}">
+                <span class="wt-theme-swatch" style="background:linear-gradient(135deg, ${p.colors.parchment}, ${p.colors.gold})"></span>
+                <span>${p.name}</span>
+              </button>`;
+            }).join('')}
+          </div>
+
+          <h4 class="wt-subheading">Your Custom Themes</h4>
+          <div class="wt-theme-grid">
+            ${customPresets.map((c) => {
+              const pal = WT.theme.paletteFromHue(c.hue);
+              const active = t.presetId === 'custom' && t.activeCustomId === c.id;
+              return `<button class="wt-theme-swatch-btn ${active ? 'wt-theme-active' : ''}" data-custom="${c.id}">
+                <span class="wt-theme-swatch" style="background:linear-gradient(135deg, ${pal.parchment}, ${pal.gold})"></span>
+                <span>${escapeHtml(c.name)}</span>
+                <span class="wt-theme-delete" data-delete-custom="${c.id}" title="Delete">✕</span>
+              </button>`;
+            }).join('') || '<p class="wt-empty">None yet — make one below!</p>'}
+          </div>
+
+          <h4 class="wt-subheading">Make a Custom Theme</h4>
+          <div class="wt-hue-picker-row">
+            <div class="wt-hue-wheel" id="hue-wheel">
+              <div class="wt-hue-pointer" id="hue-pointer"></div>
+            </div>
+            <div class="wt-hue-preview-card" id="hue-preview"></div>
+          </div>
+          <div class="wt-hue-save-row">
+            <input type="text" id="hue-name" placeholder="Name this theme..." maxlength="24">
+            <button class="wt-btn wt-btn-primary" id="hue-save-btn">Save Preset</button>
+          </div>
+        </div>
+      </div>
+    `;
+    wireModalChrome();
+
+    let selectedHue = 40;
+    const wheel = document.getElementById('hue-wheel');
+    const pointer = document.getElementById('hue-pointer');
+    const preview = document.getElementById('hue-preview');
+
+    function updatePreview(hue) {
+      const pal = WT.theme.paletteFromHue(hue);
+      preview.style.background = pal.parchment;
+      preview.style.borderColor = pal['card-border'];
+      preview.innerHTML = `
+        <span class="wt-hue-preview-swatch" style="background:${pal.gold}"></span>
+        <span class="wt-hue-preview-swatch" style="background:${pal.green}"></span>
+        <span class="wt-hue-preview-swatch" style="background:${pal.blue}"></span>
+        <span class="wt-hue-preview-swatch" style="background:${pal.red}"></span>
+      `;
+      const rad = (hue * Math.PI) / 180;
+      const r = 42;
+      pointer.style.left = 50 + r * Math.sin(rad) + '%';
+      pointer.style.top = 50 - r * Math.cos(rad) + '%';
+    }
+
+    function pickFromEvent(e) {
+      const rect = wheel.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const dx = e.clientX - cx;
+      const dy = e.clientY - cy;
+      let theta = (Math.atan2(dx, -dy) * 180) / Math.PI;
+      if (theta < 0) theta += 360;
+      selectedHue = theta;
+      updatePreview(selectedHue);
+    }
+
+    wheel.addEventListener('click', pickFromEvent);
+    updatePreview(selectedHue);
+
+    document.getElementById('hue-save-btn').addEventListener('click', () => {
+      const name = document.getElementById('hue-name').value.trim() || 'Custom';
+      WT.theme.saveCustomPreset(name, selectedHue);
+      toast(`Saved "${name}" theme`, 'success');
+      openThemePicker();
+    });
+
+    modalRoot.querySelectorAll('[data-preset]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (e.target.closest('[data-delete-custom]')) return;
+        WT.theme.selectPreset(btn.dataset.preset);
+        openThemePicker();
+      });
+    });
+    modalRoot.querySelectorAll('[data-custom]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (e.target.closest('[data-delete-custom]')) return;
+        WT.theme.selectCustom(btn.dataset.custom);
+        openThemePicker();
+      });
+    });
+    modalRoot.querySelectorAll('[data-delete-custom]').forEach((el2) => {
+      el2.addEventListener('click', (e) => {
+        e.stopPropagation();
+        WT.theme.deleteCustomPreset(el2.dataset.deleteCustom);
+        openThemePicker();
+      });
+    });
   }
 
   // ---------------- WEIGHT ----------------
@@ -413,7 +737,8 @@ WT.ui = (function () {
   }
 
   return {
-    renderHome, renderCalendar, renderQuests, renderWeight,
+    renderHome, renderCalendar, renderQuests, renderAdventure, renderWeight,
     toast, closeModal, showLoading, hideLoading, setSaveStatus,
+    celebrateQuestComplete, openThemePicker, openAddWorkoutModal,
   };
 })();

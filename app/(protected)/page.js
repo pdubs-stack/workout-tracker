@@ -12,7 +12,10 @@ const SCRIPTS = [
   '/js/storage.js',
   '/js/exercises.js',
   '/js/rotation.js',
+  '/js/theme.js',
+  '/js/weapons.js',
   '/js/gamification.js',
+  '/js/adventure.js',
   '/js/workout.js',
   '/js/weight.js',
   '/js/calendar.js',
@@ -62,8 +65,12 @@ export default function HomePage() {
               <button className="wt-nav-btn active" data-tab="home">Home</button>
               <button className="wt-nav-btn" data-tab="calendar">Calendar</button>
               <button className="wt-nav-btn" data-tab="quests">Quests &amp; Armor</button>
+              <button className="wt-nav-btn" data-tab="adventure">Adventure</button>
               <button className="wt-nav-btn" data-tab="weight">Weight</button>
             </nav>
+            <button id="theme-btn" className="wt-btn wt-btn-ghost wt-theme-toggle-btn" type="button" title="Choose a theme">
+              🎨
+            </button>
             <button id="logout-btn" className="wt-btn wt-btn-ghost wt-logout-btn" type="button">
               Log Out
             </button>
@@ -75,6 +82,7 @@ export default function HomePage() {
         <section id="tab-home" className="wt-tab active"></section>
         <section id="tab-calendar" className="wt-tab"></section>
         <section id="tab-quests" className="wt-tab"></section>
+        <section id="tab-adventure" className="wt-tab"></section>
         <section id="tab-weight" className="wt-tab"></section>
       </main>
 
