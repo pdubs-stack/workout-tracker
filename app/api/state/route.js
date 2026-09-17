@@ -1,11 +1,21 @@
 import { NextResponse } from 'next/server';
 import { readState, writeState } from '../../../lib/blobStore';
 import { defaultState } from '../../../lib/defaultState';
+import { SESSION_COOKIE, isValidSession } from '../../../lib/auth';
 
 // This route must always hit Blob storage live, per request -- never statically cached.
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+async function checkAuth(req) {
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  const secret = process.env.AUTH_SECRET;
+  return isValidSession(token, secret);
+}
+
+export async function GET(req) {
+  if (!(await checkAuth(req))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
     const state = await readState();
     return NextResponse.json(state || defaultState());
@@ -16,6 +26,10 @@ export async function GET() {
 }
 
 export async function PUT(req) {
+  if (!(await checkAuth(req))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   let body;
   try {
     body = await req.json();
